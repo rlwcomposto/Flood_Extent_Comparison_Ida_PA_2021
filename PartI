@@ -1,0 +1,595 @@
+Part I: Make RF Inputs
+Copy and paste the code below into GEE 
+
+/*
+Prepare Assets for Ida Floods
+
+Description: This GEE code prepares S2 data & other datasets to be exported as
+GEE assets by spatially and temporally filtering them. These datasets will then be
+used in a second GEE script and a random forest algorithm will be applied to them
+to detect flooding. Make all inputs, combine then, reproject to 10m resolution, 
+crs ESPG 4326. 
+
+Notes - changes since v2, try to get to same projection, add linear unmixed columns and window
+
+Sections:
+1. Set Variables & Functions
+2. Get S2 data 
+3. Make S2 indices 
+4. Get dem data 
+5. Get lulc data
+6. Get water data
+7. Combine bands 
+8. Display
+9. Export as asset (export in two chunks, too large to export at once)
+ 
+Rebecca Composto | August 29, 2023
+Review & Additions from Varun Tiwari
+
+Cloud Filter Options:
+- GEE Sentinel-2 Cloud Prob layer - https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S2_CLOUD_PROBABILITY#terms-of-use
+- https://developers.google.com/earth-engine/tutorials/community/sentinel-2-s2cloudless#define_cloud_mask_application_function
+- https://code.earthengine.google.com/a9f5b413a1db855666c9238d5cfde20e
+
+Additional Resources:
+From Julio - https://spaceml-org.github.io/ml4floods/content/prep/gt_masks_generation.html#cloud-masks
+GEE tutorial - https://developers.google.com/earth-engine/tutorials/community/sentinel-2-s2cloudless
+GEE Sentinel-2 Cloud Prob layer - https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S2_CLOUD_PROBABILITY#terms-of-use
+Article - https://medium.com/google-earth/more-accurate-and-flexible-cloud-masking-for-sentinel-2-images-766897a9ba5f
+ndvi - https://developers.google.com/earth-engine/tutorials/tutorial_api_06
+ee.Terrain - https://developers.google.com/earth-engine/apidocs/ee-terrain-products
+evi - https://gis.stackexchange.com/questions/366037/calculate-annual-evi-vegetation-index-in-google-earth-engine
+Get dates of image collection - https://gis.stackexchange.com/questions/307115/earth-engine-get-dates-from-imagecollection
+resample - https://www.youtube.com/watch?v=YOcQnxph4dw&ab_channel=MuddasirShah
+*/
+
+/******************** Shapes ******************/
+var geometry = 
+    /* color: #98ff00 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-75.23564692073617, 40.20800389427878],
+          [-75.23564692073617, 40.20026862384202],
+          [-75.22341604762826, 40.20026862384202],
+          [-75.22341604762826, 40.20800389427878]]], null, false),
+    veg = /* color: #d63000 */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.25623273152308, 40.05977130422078],
+                  [-75.2554066111465, 40.060214727366024],
+                  [-75.25612544316249, 40.06046107231089],
+                  [-75.25657605427699, 40.06000122769335]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.41996568156235, 40.293833173145735],
+                  [-75.41919320536606, 40.29434871846909],
+                  [-75.41955798579208, 40.29460239805735],
+                  [-75.42021244479172, 40.29407048814823]]]),
+            {
+              "system:index": "1"
+            })]),
+    water = /* color: #0b4a8b */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.40120878522704, 39.955824047725024],
+                  [-75.40380516355346, 39.95658065890024],
+                  [-75.4041914016516, 39.95562666952006],
+                  [-75.40213146512816, 39.95414631482526],
+                  [-75.39867677991698, 39.95478780579381],
+                  [-75.40099420850585, 39.9557747032272]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.23913689117741, 39.85841364285328],
+                  [-75.24207659225773, 39.85795243750774],
+                  [-75.24162598114323, 39.857408870085635],
+                  [-75.23933001022648, 39.85813362569171]]]),
+            {
+              "system:index": "1"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.24834223251652, 39.85590991943447],
+                  [-75.25042362671208, 39.85597580806307],
+                  [-75.25211878280949, 39.854460353601645],
+                  [-75.2494365737946, 39.854476826112624],
+                  [-75.24827785950016, 39.855728725379635]]]),
+            {
+              "system:index": "2"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.31863552995375, 39.85360366659608],
+                  [-75.32091004319838, 39.854427297582404],
+                  [-75.32314164109877, 39.853076537578005],
+                  [-75.3208242125099, 39.85195637497324],
+                  [-75.31889302201918, 39.852944754690945]]]),
+            {
+              "system:index": "3"
+            })]),
+    urban = /* color: #ffc82d */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.33042375380315, 39.85816741624936],
+                  [-75.33131424719609, 39.85875215638293],
+                  [-75.33204380804814, 39.85867803466993],
+                  [-75.33179704481877, 39.858150944624136],
+                  [-75.33103529745854, 39.85773091684552],
+                  [-75.33045594031132, 39.8580685864388]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.1651610353991, 39.92452751885355],
+                  [-75.16532196793999, 39.924533689734986],
+                  [-75.16532196793999, 39.92445963912092],
+                  [-75.16513153109993, 39.924457582158276],
+                  [-75.16512348447289, 39.92451106316697]]]),
+            {
+              "system:index": "1"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.14519312611357, 39.91569036817243],
+                  [-75.14497854939238, 39.91633221969293],
+                  [-75.14474251499907, 39.91752538922643],
+                  [-75.14511802426115, 39.91757476131094],
+                  [-75.14533260098234, 39.9171139538045],
+                  [-75.1453969739987, 39.916455651987974],
+                  [-75.14541843167082, 39.915764428270265],
+                  [-75.14531114331022, 39.91565745254768]]]),
+            {
+              "system:index": "2"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.14156677952543, 39.91731144311553],
+                  [-75.14225342503325, 39.91736904405729],
+                  [-75.14232852688566, 39.9170974963362],
+                  [-75.14216759434477, 39.91703166642348],
+                  [-75.14153459301725, 39.91706458138777],
+                  [-75.14150240650908, 39.9172538421253]]]),
+            {
+              "system:index": "3"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[-75.24224617710844, 39.87421236830716],
+                  [-75.24211743107573, 39.875365102626304],
+                  [-75.24284699192778, 39.87539803760791],
+                  [-75.24284699192778, 39.87427823936161]]]),
+            {
+              "system:index": "4"
+            })]);
+
+/******************** STEP 1: Set Variables & Functions ******************/
+// Set to 1 to export
+var export_s2 = 0;
+var export_other = 0;
+var export_s2_name = 'tot_s2_v3';
+var export_other_name = 'tot_ot_v3';
+
+// Select dates
+var start = ee.Date('2021-09-01');
+var end = ee.Date('2021-09-03');
+
+// Select counties
+//Phila: 42101, Bucks: 42017, Montgomery: 42091, Chester: 42029, Delaware: 42045
+var cnty_or = 'GEOID == "42101" OR GEOID=="42017" OR GEOID=="42091" OR GEOID=="42045"';
+var cnty_list = ['GEOID=="42101"','GEOID=="42017"','GEOID=="42091"','GEOID=="42045"'];
+
+// Create roi 
+var roi = ee.FeatureCollection("TIGER/2018/Counties")
+            .filter(cnty_or)
+            .union(); 
+// turn into geom for filtering raster
+var roi_g = roi.geometry();
+var buff_geom = roi_g.buffer({'distance':100});
+
+// Set projection properties
+var collection = ee.ImageCollection("COPERNICUS/S2_SR")
+                   .filterDate(start,end) 
+                   .filterBounds(buff_geom); 
+var band_prop = collection.first().select('B8'); // set 10m band features
+//band_prop = band_prop.reproject('EPSG: 4326')
+var proj_10m = band_prop.projection();
+//print('projection used for other datasets',proj_10m);
+
+// FUNCTION: Filter clouds (by Varun)
+//cloud mask for sentinel 2
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+             qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+ 
+  //var ndvi= image.normalizedDifference(['B8', 'B4']).select([0], ['NDVI']).set('time_start',image.get('system:time_start')
+//print(ndvi)
+  // Return the masked and scaled data, without the QA bands.
+  return image
+      .copyProperties(image, ["system:time_start"]);
+}
+
+// FUNCTION: Test the band of a layer
+function test_band(name,viz) {
+  print('testing the layer:', name);
+  print('min', name.reduceRegion({reducer: ee.Reducer.min(), scale:10, geometry:geometry}));
+  print('max', name.reduceRegion({reducer: ee.Reducer.max(), scale:10, geometry:geometry}));
+  print('ave', name.reduceRegion({reducer: ee.Reducer.mean(), scale:10, geometry:geometry}));
+  print('scale',name.projection().nominalScale());
+  Map.addLayer(name,viz,'test this layer',false);
+}
+
+
+/******************** STEP 2: Get S2 data ******************/
+// Get S2 data for roi
+var collection_S2 = ee.ImageCollection("COPERNICUS/S2_SR") 
+    //.filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 5)) // filters WHOLE images not individual pixels
+    .filterDate(start,end)
+    .map(maskS2clouds) 
+    .filterBounds(buff_geom)
+    // Filter location
+    .map(function(image){return image.clip(buff_geom)})
+    // Resample to 10m
+    .map(function(image){return image.resample('bilinear')
+                                     .reproject(proj_10m)}); //if not reprjoected, stays 32618
+
+// Get dates of S2
+var S2_dates = collection_S2.aggregate_array('system:time_start');
+S2_dates = S2_dates.map(function(x){return ee.Date(x)});
+//print(S2_dates);
+
+// Combine images & select bands
+var imageS2 = collection_S2.mosaic()
+                           .select(['B1','B2','B3','B4','B5','B6','B7',
+                                    'B8','B8A','B9','B11','B12']); //B10
+                           //.toInt();
+
+// Figuring out S2 projection
+// Other datasets do not respond well to being reproject with 4326
+//print('S2 projection after being reprojected',imageS2.select('B8').projection());
+//var band_propp = imageS2.select('B8'); // set 10m band features
+//proj_10m = band_propp.projection();
+//print('this is what could project to ',proj_10m);
+//print('test if reprojection worked',imageS2.select('B8A').projection().nominalScale())
+//Map.addLayer(imageS2.select('B8A'),{min:1000,max:8000},'test s2 b8a',false)
+
+
+/******************** STEP 3: Make S2 indices ******************/
+// ndvi = nir-red/nir+red //-1 to 1
+var ndvi = imageS2.normalizedDifference(['B8', 'B4']).rename('NDVI');
+
+// evi = 2.5*(nir-red)/(nir+6*red-7.5*blue + 1) //-1 to 1
+var evi = imageS2.expression(
+  '2.5 * ((NIR-RED) / (NIR + 6 * RED - 7.5* BLUE +1))', {
+    NIR:imageS2.select('B8'),
+    RED:imageS2.select('B4'),
+    BLUE:imageS2.select('B2')
+  }).rename('EVI');
+
+// ndwi = green-nir/green+nir //-1 to 1
+var ndwi = imageS2.normalizedDifference(['B3','B8']).rename('NDWI');
+
+// mndwi = green-mir/green+mir
+var mndwi = imageS2.normalizedDifference(['B3','B12']).rename('MNDWI');
+// use b11
+// https://doi.org/10.3390/rs8040354
+var mndwit = imageS2.normalizedDifference(['B3','B11']).rename('MNDWIT');
+
+// normalized diff moisture index
+// ndmi = nir-swir1/nir+swir1
+var ndmi = imageS2.normalizedDifference(['B4','B11']).rename('NDMI');
+
+// automated water extraction index
+var awei_nsh = imageS2.expression(
+  '4 * (GREEN - SWIR1) - (.25 * NIR + 2.75 * SWIR2)', {
+    GREEN: imageS2.select('B3'),
+    SWIR1: imageS2.select('B11'),
+    SWIR2: imageS2.select('B12'),
+    BLUE: imageS2.select('B2'),
+    NIR: imageS2.select('B8')
+  }).rename('AWEI_NSH');
+  
+var awei_sh = imageS2.expression(
+  'BLUE + 2.5 * GREEN - 1.5 * (NIR + SWIR1) - .25 * SWIR2', {
+    GREEN: imageS2.select('B3'),
+    SWIR1: imageS2.select('B11'),
+    SWIR2: imageS2.select('B12'),
+    BLUE: imageS2.select('B2'),
+    NIR: imageS2.select('B8')
+  }).rename('AWEI_SH');
+
+// NDFI - flooding
+// ndfi = (red - swir2) / (red + swir2)
+var ndfi = imageS2.normalizedDifference(['B4','B12']).rename('NDFI');
+
+// WRI - water r index
+// wri = (green + red) / (nir + swir1)
+var wri = imageS2.expression(
+  '(GREEN + RED) / (NIR + SWIR1)', {
+    GREEN: imageS2.select('B3'),
+    RED:imageS2.select('B4'),
+    NIR: imageS2.select('B8'),
+    SWIR1: imageS2.select('B11'),
+  }).rename('WRI');
+
+// Test the indices, print and display
+//ndvi.select('NDVI').aside(test_band,{min: -1, max: 1, palette: ['blue', 'white', 'green']}); // Float, -.3 - .9
+//evi.select('EVI').aside(test_band,{palette: ['blue', 'white', 'green']}); // Double, -17715 - 16825
+//ndwi.select('NDWI').aside(test_band,{min: -1, max: 1, palette: ['blue', 'white', 'green']}); //-.8 - .3
+//mndwi.select('MNDWI').aside(test_band,{min: -1, max: 1, palette: ['blue', 'white', 'green']}); //-.8 - .8
+//mndwit.select('MNDWIT').aside(test_band,{min: -1, max: 1, palette: ['blue', 'white', 'green']}); //-.9 - .7
+//ndmi.select('NDMI').aside(test_band,{min: -1, max: 1, palette: ['blue', 'white', 'green']}); // -.9 - .7
+//awei_nsh.select('AWEI_NSH').aside(test_band,{min: -30000, max: 20000}); // -65236 - 6823
+//awei_sh.select('AWEI_SH').aside(test_band,{min: -30000, max: 20000}); // -35615 - 11847.5
+//wri.select('WRI').aside(test_band,{min: -1, max: 5}); //.05-2
+//ndfi.select('NDFI').aside(test_band,{min: -1, max: 1});
+
+
+/******************** STEP 4: Get dem data ******************/
+// Get dem data for roi
+var dem = ee.Image("USGS/3DEP/10m")
+            .select('elevation')
+            .clip(buff_geom)
+            //.resample('bilinear').reproject(proj_10m)
+            //.toInt()//.toDouble()//.reproject('EPSG:4326')
+            .rename('DEM');
+
+// Get dates of dem data
+var dem_meta = ee.FeatureCollection('USGS/3DEP/10m_metadata')
+  .filterBounds(buff_geom);
+// s_date: data source date  
+//print('s_date min:', dem_meta.aggregate_min('s_date'),"", 's_date max:',dem_meta.aggregate_max('s_date'));
+// Quaddate: "date the data were used to produce the elevation product"
+//print('quad min:', dem_meta.aggregate_min('quaddate'),"", 'quad max:',dem_meta.aggregate_max('quaddate'));
+//print('histo',sheds.aggregate_histogram('s_date'))
+
+// Test reprojection & rescale
+//print('test if dem reprojection worked',dem.select('DEM').projection().nominalScale());
+//Map.addLayer(dem.select('DEM'),{min:-50,max:200},'test dem',true)
+//print(dem.getInfo())
+
+// Calculate slope, hillshade, aspect
+var slope = ee.Terrain.slope(dem).rename('SLOPE'); // in 2016 paper, degrees 0-90
+var aspect = ee.Terrain.aspect(dem).rename('ASPECT');
+var hillShade = ee.Terrain.hillshade(dem).rename('HILL'); //in 2016 paper
+
+// Test the data
+//dem.select('DEM').aside(test_band,{min:-50,max:100}); //67 - 157
+//slope.select('SLOPE').aside(test_band,{min:0,max:89.99}); // 0-32
+//aspect.select('ASPECT').aside(test_band,{}); // 0 - 359
+//hillShade.select('HILL').aside(test_band,{}); //108 - 255
+
+
+/******************** STEP 5: Get lulc data ******************/
+// Get lulc data for roi
+var land = ee.ImageCollection("USGS/NLCD_RELEASES/2019_REL/NLCD")
+             .filter(ee.Filter.eq('system:index', '2019'))
+             .first()
+             //.toInt()
+             .clip(buff_geom)
+             //.resample('bilinear').reproject(proj_10m);
+
+// Select desired bands
+var nlcd_lc = land.select('landcover').rename('LC');//.reproject('EPSG:4326');
+var nlcd_imp = land.select('impervious').rename('IMP');//.reproject('EPSG:4326'); // 100 = pixel 100% impervious
+
+// Test data
+//nlcd_lc.select('LC').aside(test_band,{}); // 11-90
+//nlcd_imp.select('IMP').aside(test_band,{}); // 0-99
+//var histo = ui.Chart.image.histogram({image:nlcd_imp.select('IMP'), region:geometry, scale:10});
+//print(histo);
+
+
+/******************** STEP 6: Get other data ******************/
+// Get water data for roi
+var occ = ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
+                .select(['occurrence'])
+                .clip(buff_geom)
+                //.resample('bilinear').reproject(proj_10m)
+                //.toInt()//.toDouble()//.reproject('EPSG:4326')
+                .rename(['OCC']);
+
+var wat = ee.ImageCollection("JRC/GSW1_4/YearlyHistory")
+                .filterBounds(geometry)
+                .filterDate('2021-01-01','2022-01-01')
+                .first()
+                //.toInt()
+                //.resample('bilinear').reproject(proj_10m);
+                
+wat = wat.clip(buff_geom).select('waterClass').rename('WAT');
+
+// Test data
+//occ.select('OCC').aside(test_band,{min: 0, max: 100, palette:'blue'}); // 1 - 80
+//wat.select('WAT').aside(test_band,{min: 0, max: 3, palette: ['cccccc', 'ffffff', '99d9ea', '0000ff']}); // 0-3
+
+
+/******************** STEP pre-7: Combine Bands *****************/
+// Combine all S2 data
+var tot_pt1 = ee.Image([imageS2, ndvi, evi, ndwi, mndwi, mndwit, ndmi, 
+                          awei_nsh, awei_sh, ndfi, wri]);
+
+
+// Define spectral endmembers 
+var meanDictionary_pre_Vegetation = tot_pt1.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: veg.geometry(),
+  scale: 10,
+  maxPixels: 1e9
+});
+var veg_pre=meanDictionary_pre_Vegetation.toArray().toList();
+//print(meanDictionary_pre_Vegetation);
+
+var meanDictionary_pre_Water = tot_pt1.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: water.geometry(),
+  scale: 10,
+  maxPixels: 1e9
+});
+var water_pre=meanDictionary_pre_Water.toArray().toList();
+
+// Reduce the region. The region parameter is the Feature geometry.
+var meanDictionary_pre_Urban = tot_pt1.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: urban.geometry(),
+  scale: 10,
+  maxPixels: 1e9
+});
+var urban_pre=meanDictionary_pre_Urban.toArray().toList();
+
+// Perform unmixing
+var unmixed = tot_pt1.unmix([veg_pre,urban_pre,water_pre]).rename('u_veg','u_urb','u_wat');
+Map.addLayer(unmixed,{},'test the unmixed',false);
+
+tot_pt1 = tot_pt1.addBands(unmixed);
+//print(tot_pt1);
+
+
+/******************** STEP pre-7: Combine Bands *****************/
+// function to add 3x3 window
+var win_pt1 = tot_pt1.reduceNeighborhood(
+                  ee.Reducer.mean(), 
+                  ee.Kernel.square(10, 'meters')
+                  );
+tot_pt1 = tot_pt1.addBands(win_pt1);
+//print(tot_pt1);
+
+// Combine all other data
+var tot_pt2 = ee.Image([dem, slope, aspect, hillShade, 
+                          nlcd_lc, nlcd_imp, wat, occ]);//.reproject('EPSG:4326');
+
+// resample & reproject
+tot_pt2 = tot_pt2.resample('bilinear').reproject(proj_10m);
+//tot_pt2 = tot_pt2.reproject('EPSG:4326');
+//reproject('EPSG:4326');
+//.reproject(proj_10m);
+//print(tot_pt2);
+
+var win_pt2 = tot_pt2.reduceNeighborhood(
+                  ee.Reducer.mean(), 
+                  ee.Kernel.square(10, 'meters')
+                  ).toInt();
+tot_pt2 = tot_pt2.addBands(win_pt2);
+
+//print(tot_pt1);
+//print(tot_pt2);
+
+var total = tot_pt1.addBands(tot_pt2);
+//print(total);
+                          
+// Test total
+/*
+Map.addLayer(tot_pt1.select('NDVI'),{min:-100,max:100},'ndvi after combo 2',false);
+Map.addLayer(tot_pt1.select('EVI'),{palette: ['blue', 'white', 'green']},'evi after combo 2',false);
+Map.addLayer(tot_pt1,{min: 0, max: 3000, bands: ['B4', 'B3', 'B2']},'S2 after combo',false);
+Map.addLayer(tot_pt2.select('HILL'),{min:100, max:240},'hill test', false);
+Map.addLayer(tot_pt2.select('WAT'),{min:0,max:4},'wat test', false);
+Map.addLayer(tot_pt2.select('LC'),{min:10,max:30},'lc test', false);
+Map.addLayer(tot_pt2.select('LC_mean'),{min:10,max:30},'lc mean test', false);
+Map.addLayer(tot_pt1.select('NDMI_mean'),{min:10,max:30},'ndmi mean test', false);
+Map.addLayer(tot_pt1.select('AWEI_SH'),{min: -30000, max: 20000},'awei sh test', false);
+var chart1 = ui.Chart.image.histogram({image:tot_pt2.select('WAT'), region:geometry,maxPixels:300});
+//print('wat',chart1);
+*/
+
+Map.addLayer(total.select('NDVI'),{min:-1,max:1},'ndvi after combo 2',false);
+Map.addLayer(total.select('EVI'),{palette: ['blue', 'white', 'green']},'evi after combo 2',false);
+Map.addLayer(total,{min: 0, max: 3000, bands: ['B4', 'B3', 'B2']},'S2 after combo',false);
+Map.addLayer(total.select('HILL'),{min:100, max:240},'hill test', false);
+Map.addLayer(total.select('WAT'),{min:0,max:4},'wat test', false);
+Map.addLayer(total.select('LC'),{min:10,max:30},'lc test', false);
+Map.addLayer(total.select('LC_mean'),{min:10,max:30},'lc mean test', false);
+Map.addLayer(total.select('NDMI_mean'),{min:-1,max:1},'ndmi mean test', false);
+Map.addLayer(total.select('AWEI_SH'),{min: -30000, max: 20000},'awei sh test', false);
+Map.addLayer(total.select('u_veg'),{},'unmixed test', false);
+                          
+/******************** STEP 8: Display ******************/
+//Viz params
+var rgbVis = {min: 0, max: 3000, bands: ['B4', 'B3', 'B2']};
+var ndviParams = {min: -1, max: 1, palette: ['blue', 'white', 'green']};
+var jrc_viz = {min: 0, max: 100, palette: ['ffffff', 'ffbbbb', '0000ff']};
+
+// Add S2 imagery
+Map.addLayer(imageS2,{min: 0, max: 3000, bands: ['B4', 'B3', 'B2']},'S2 imagery test',false);
+Map.centerObject(buff_geom, 16); //9
+
+// Add Outlines
+// Add buffered roi outline
+var empty = ee.Image().byte();
+var roib_outline = empty.paint({
+  featureCollection: buff_geom,
+  //color: 1,
+  width: 1.5
+}).visualize({palette:'red'});
+//Map.addLayer(roib_outline,{},"ROI buffer outline",false);
+
+// Add roi
+var roi_outline = empty.paint({
+  featureCollection: roi_g,
+  //color: 1,
+  width: 1.5
+}).visualize({palette:'red'});
+Map.addLayer(roi_outline,{},"ROI outline",false);
+
+
+/******************** STEP 9: Export ******************/
+
+if (export_s2 == 1) {
+Export.image.toAsset({
+    image: tot_s2,
+    description: export_s2_name,
+    scale: 10,
+    maxPixels: 1e13,
+    crs: 'EPSG:4326',
+    //folder: "Grad_School_Data"
+  
+});
+}
+
+if (export_other == 1) {
+Export.image.toAsset({
+    image: tot_other,
+    description: 'description',
+    region: roi_g,
+    scale: 10,
+    maxPixels: 1e13,
+    crs: 'EPSG:4326',
+   //folder: "Grad_School_Data"
+});
+}
+
+
+
+/*
+var total_v1 = total;
+Export.image.toAsset({
+    image: total_v1,
+    description: 'This is the first attempt to export total RF inputs',
+    region: roi_g,
+    scale: 10,
+    maxPixels: 1e13,
+    crs: 'EPSG:4326',
+   //folder: "Grad_School_Data"
+});
+*/
+
+
+
+
+
