@@ -1,0 +1,319 @@
+
+
+/*
+Run RF Model with Prepared GEE Assets
+
+Description: This GEE uses the prepared assets as inputs to RF model to find flood extent after Hurricane Ida
+Revisions: Seperate polygons into testing and training data
+
+Sections:
+1. Set Variables & Functions
+2. Prepare RF Inputs
+3. Prepare Training & Testing Data
+4. Run RF
+5. Parameter Tuning
+6. Accuracy Assessment
+7. Display
+8. Export
+ 
+Rebecca Composto | June 2024
+
+Resources:
+- Dr. Wu GEE Tutorial - https://geemap.org/workshops/GeoPython_2021/#unsupervised-classification
+- GEE RF Code - https://developers.google.com/earth-engine/guides/classification
+- 3x3 Window - https://gis.stackexchange.com/questions/358232/average-moving-window-in-gee
+- Tuning - https://courses.spatialthoughts.com/end-to-end-gee-supplement.html#hyperparameter-tuning
+- https://www.youtube.com/watch?v=bfFhuj1aBpU
+*/
+
+
+/******************** STEP 1: Set Variables & Functions ******************/
+var run_rf = 1;
+var export_result = 0;
+var col_name = 'ClassValue'; //ClassValue or ClassVal2
+
+// Create lists of specific bands
+// no jrc
+var spec_subset1 = (ee.List.sequence(0,55,1))//56,57 - jrc data
+                      .cat(ee.List.sequence(58,63,1)) //64,65 - jrc mean
+                      .remove(15).remove(40) // remove MNDWI, incorrect equation, 15,40
+                      .remove(50).remove(58); // remove DEM
+
+// no windows             
+var spec_subset2 = (ee.List.sequence(0,24,1))
+                      .cat(ee.List.sequence(50,57,1));
+
+// no jrc 'wat'
+var spec_subset = (ee.List.sequence(0,56,1))
+                      .cat(ee.List.sequence(58,64,1));
+
+/******************** STEP 2: Prepare RF Inputs ******************/
+// Import RF inputs
+var total = ee.Image('users/rlwcomposto/total_v1');
+//print(total);
+
+print('name of bands original order - ',total.bandNames());
+
+// Filter bands in RF inputs
+var total_pt1 = total.select(spec_subset1); // filter bands
+//print(total);
+var total_pt2 = total.select(ee.List.sequence(56,57,1)//56,57
+                      .cat(ee.List.sequence(64,65,1)));//64,65)
+// unmask the JRC data      
+total_pt2 = total_pt2.unmask(-50);
+
+total = total_pt1.addBands(total_pt2);
+
+
+// Make variable of band names
+var bands = total.bandNames();
+print('name of bands used - ',bands);
+print('the number of bands used - ',bands.length());
+
+// Input t&t data
+var polygons = ee.FeatureCollection('users/rlwcomposto/t_t_ida_v5');
+//print(polygons.getInfo()); // View columns
+
+
+/******************** STEP 3A: Training & Validation Polygons  ******************/
+// Code from here - https://developers.google.com/earth-engine/guides/classification
+// No null values in any bands for training!
+
+
+// Stratify the t&t data, oversample water
+// Prepare t&t data for stratified sample
+// Add random column value
+var sample = polygons.randomColumn({columnName: 'rando1', seed:3});
+
+// Stratified polygons sample
+var not_samp = sample.filter(ee.Filter.eq(col_name,0)).sort('rando1').limit(160); // filter to NotWater
+var wat_samp = sample.filter(ee.Filter.eq(col_name,1)).sort('rando1').limit(130); // filter to Water
+var fl_samp = sample.filter(ee.Filter.eq(col_name,2)).sort('rando1').limit(130); // filter to Flood
+print('num polygons - ','wat',wat_samp.size(),'flood',fl_samp.size(),'not',not_samp.size());
+
+var strat_sample = not_samp.merge(wat_samp).merge(fl_samp); // merge all sub-samples
+//var tester = sample.sort('rando1').sort('ClassValue',true).limit(10);
+
+// Add another random column for t&t split
+strat_sample = strat_sample.randomColumn({columnName: 'rando2', seed:3});
+
+// Select 70% for training
+var split = 0.7;  // Roughly 70% training, 30% testing.
+var pre_training = strat_sample.filter(ee.Filter.lt('rando2', split));
+print('# training polygons', pre_training.size());
+var pre_validation = strat_sample.filter(ee.Filter.gte('rando2', split));
+print('# validation polygons', pre_validation.size());
+
+
+var training = total.sampleRegions({
+  collection: pre_training, // get sample from t&t data
+  properties: [col_name], // keep classvalue from t&t data
+  scale: 10 // match scale to RF inputs
+});
+print('# training pixels', training.size());
+
+var validation = total.sampleRegions({
+  collection: pre_validation, // get sample from t&t data
+  properties: [col_name], // keep classvalue from t&t data
+  scale: 10 // match scale to RF inputs
+});
+print('# validation pixels', validation.size());
+
+
+/******************** STEP 3B: Training & Validation Pixels  ******************/
+/*
+// Code from here - https://developers.google.com/earth-engine/guides/classification
+// No null values in any bands for training!
+
+// Get the values for all pixels in each polygon in the training.
+var sample = total.sampleRegions({
+  collection: polygons, // get sample from t&t data
+  properties: [col_name], // keep classvalue from t&t data
+  scale: 10 // match scale to RF inputs
+});
+
+// Prepare t&t data for stratified sample
+// Add random column value
+sample = sample.randomColumn({columnName: 'rando1',seed:4});
+
+// Get total number of pixels in the different classses
+var a = sample.filter(ee.Filter.eq(col_name,0)); // filter to NotWater
+var b = sample.filter(ee.Filter.eq(col_name,1)); // filter to Water
+var c = sample.filter(ee.Filter.eq(col_name,2)); // filter to Flood
+//print('num tot t&v pixels - ','not',a.size(),'wat',b.size(),'flood',c.size());
+
+
+// Stratify pixels
+var not_samp = sample.filter(ee.Filter.eq(col_name,0)).sort('rando1').limit(42000); // filter to NotWater
+var wat_samp = sample.filter(ee.Filter.eq(col_name,1)).sort('rando1').limit(21000); // filter to Water
+var fl_samp = sample.filter(ee.Filter.eq(col_name,2)).sort('rando1').limit(6000); // filter to Flood
+//print('num strat pixels - ', 'not',not_samp.size(), 'wat',wat_samp.size(),'flood',fl_samp.size());
+// merge all sub-samples
+var strat_sample = not_samp.merge(wat_samp).merge(fl_samp); 
+
+// add another random col
+strat_sample = strat_sample.randomColumn({columnName: 'rando2',seed:4});
+
+// Select 70% for training
+var split = 0.7;  // Roughly 70% training, 30% testing.
+var training = strat_sample.filter(ee.Filter.lt('rando2', split));
+print('tot num training pixels', training.size());
+print('num training pixels by class ','not', training.filter(ee.Filter.eq(col_name,0)).size(), 
+      'wat', training.filter(ee.Filter.eq(col_name,1)).size(), 'flood', training.filter(ee.Filter.eq(col_name,2)).size());
+
+var validation = strat_sample.filter(ee.Filter.gte('rando2', split));
+print('tot num validation pixels', validation.size());
+print('num validation pixels by class ','not', validation.filter(ee.Filter.eq(col_name,0)).size(), 
+      'wat', validation.filter(ee.Filter.eq(col_name,1)).size(), 'flood', validation.filter(ee.Filter.eq(col_name,2)).size());
+
+
+/******************** STEP 4: Run RF ******************/
+// Run RF algorithm
+// Max # pixels can use to train, but can train multiple times 
+
+if (run_rf == 1) {
+// Make a Random Forest classifier and train it.
+var classifier = ee.Classifier.smileRandomForest({numberOfTrees: 100}) //, variablesPerSplit: 6
+                    .train(training, col_name, bands);
+
+// Classify the image.
+var classified = total.classify(classifier);
+
+// Get information about the trained classifier.
+print('Results of trained classifier', classifier.explain());
+
+/******************** STEP 5: Feature Importance ******************/
+// Code from here - https://courses.spatialthoughts.com/end-to-end-gee-supplement.html#hyperparameter-tuning
+// Tuning - choose optimal parameters for tuning
+
+// Get classifier information
+//print(classifier.explain());
+
+// Calculate variable importance
+var importance = ee.Dictionary(classifier.explain().get('importance'));
+
+// Calculate relative importance
+var sum = importance.values().reduce(ee.Reducer.sum());
+
+var relativeImportance = importance.map(function(key, val) {
+   return (ee.Number(val).multiply(100)).divide(sum);
+  });
+print('Band relative Importance: ',relativeImportance);
+
+// Create a FeatureCollection so we can chart it
+var importanceFc = ee.FeatureCollection([
+  ee.Feature(null, relativeImportance)
+]);
+
+var chart = ui.Chart.feature.byProperty({
+  features: importanceFc
+}).setOptions({
+      title: 'Feature Importance',
+      vAxis: {title: 'Importance'},
+      hAxis: {title: 'Feature'}
+  });
+print(chart);
+
+
+/******************** STEP 6A: Training Accuracy Assesment******************/
+// Confusion Matrix - test data on itself
+// Get a confusion matrix representing resubstitution accuracy.
+// Reclassifies classifier w/ training data and sees how it goes
+// resource - https://blog.gishub.org/earth-engine-tutorial-33-performing-accuracy-assessment-for-image-classification
+
+//var trainAccuracy = classifier.confusionMatrix();
+
+// Accuracy of validation run
+var trainAccuracy = classifier.confusionMatrix();
+print('train accuracy', trainAccuracy.getInfo());
+/*
+print('Training overall accuracy ', trainAccuracy.accuracy());
+print('Training kappa coefficient ',trainAccuracy.kappa().getInfo());
+print('Training producer accuracy ',trainAccuracy.producersAccuracy().getInfo());
+print('Training consumer accuracy ',trainAccuracy.consumersAccuracy().getInfo());
+
+
+/******************** STEP 6B: Validation Accuracy Assesment ******************/
+// Classify the validation data
+var validated = validation.classify(classifier);
+
+// Get a confusion matrix representing expected accuracy.
+var testAccuracy = validated.errorMatrix(col_name, 'classification');
+print('Validation error matrix: ', testAccuracy);
+print('Test overall accuracy ', testAccuracy.accuracy());
+print('Test kappa coefficient ',testAccuracy.kappa().getInfo());
+print('Test producer accuracy ',testAccuracy.producersAccuracy().getInfo());
+print('Test consumer accuracy ',testAccuracy.consumersAccuracy().getInfo());
+}
+
+
+/******************** STEP 7: Display ******************/
+Map.centerObject(polygons,11);
+
+// Create pre-flood imagery
+var S2_pre1 = ee.ImageCollection('COPERNICUS/S2_SR')
+                  .filterDate('2021-08-10', '2021-08-15');
+var roi = total.geometry();
+var pre_flood = S2_pre1.mosaic().clip(roi);
+
+// Display S2 data
+Map.addLayer(pre_flood,{min:0,max:3000,bands:['B4','B3','B2']},'S2 pre-flood True Color',false);
+Map.addLayer(pre_flood,{min:0,max:3000,bands:['B8','B4','B3']},'S2 pre-flood False Color',false);
+Map.addLayer(total,{min:0,max:3000,bands:['B4','B3','B2']},'S2 post-flood True Color',false);
+Map.addLayer(total,{min:0,max:3000,bands:['B8','B4','B3']},'S2 post-flood False Color',false);
+
+// Display results
+if (run_rf == 1) {
+Map.addLayer(classified,{min: 0, max: 2, palette: ['white', 'blue', 'purple']},'Classified', false);
+}
+
+// Display t&t data
+Map.addLayer(polygons.filter('ClassValue == 1').draw({color: '0e2f44'}), {}, 't&t - Water',false);
+Map.addLayer(polygons.filter('ClassValue == 0').draw({color: '800000'}), {}, 't&t - NotWater',false);
+/*
+Map.addLayer(pre_training.filter('ClassValue == 1').draw({color: '7df9ff'}), {}, 'testing - Water',false);
+Map.addLayer(pre_training.filter('ClassValue == 0').draw({color: '800000'}), {}, 'testing - NotWater',false);
+Map.addLayer(pre_validation.filter('ClassValue == 1').draw({color: '0892d0'}), {opacity:0.70}, 'validation - Water',false);
+Map.addLayer(pre_validation.filter('ClassValue == 0').draw({color: '800000'}), {opacity:0.40}, 'validation - NotWater',false);
+
+
+/******************** STEP 8: Export ******************/
+
+if (export_result == 1) {
+  // Export.image.toDrive({
+  //     image: classified,
+  //     description: 'ida_extent_1.04',
+  //     region: total,
+  //     scale: 10,
+  //     maxPixels: 1e13,
+  //     crs: 'EPSG:4326',
+  //   folder: "Grad_School_Data"
+  // });
+  Export.image.toAsset({
+    image: classified,
+    description: 'ida_extent_104',
+    scale: 10,
+    maxPixels: 1e13,
+    crs: 'EPSG:4326'
+    });
+}
+
+//var class_v = classified.reduceToVectors();
+  
+// if (export_result == 1) {
+//   Export.table.toDrive({
+//       collection: class_v,
+//       description: 'ida_vector_v3',
+//       fileFormat: 'SHP',
+//       folder: "Grad_School_Data"
+//   });
+// }
+
+
+
+
+
+
+
+
+
