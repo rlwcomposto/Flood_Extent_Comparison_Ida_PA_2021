@@ -1,21 +1,21 @@
 # Make Flood Extent and Compare to Flood Risk & Vulnerability
-About
+This repository contains the code that was used to produce results for a <a href= https://rdcu.be/dPcyu>study</a> published in <i>Natural Hazards</i>. 
+
 
 ## Google Earth Engine (GEE) Steps
-Part I: XXX
-- This script filters Sentinel-2 (10 m) satellite data to desired dates, derives indices, and joins the satellite data to DEM, land cover and water data. This script saves the model inputs as tiff files.
+<a href=https://code.earthengine.google.com/7a770b9cb0fbbe28ff800a779452d26a> Part I Make RF Model Inputs</a>: Get Sentinel-2 (10 m) satellite data, derives indices, join with other data (DEM, land cover, water), and export for the model. 
 
-Part II: XXX
-This scripts uses the output tiff files in Part 1 and uploaded training data to map the flood extetn
-The resulting flood extent from this script is available as a shapefile on Zenodo
+<a href=https://code.earthengine.google.com/6a1bf94510abb49f38af6514117bc513> Part II Run RF Model</a>: Use Part I outputs and training data to train and run RF model, output is 10-m raster classified as NotWater (0), Water (permanent) (1), and Flood (2). This classified layer is also available as a geojson file on <a href= https://zenodo.org/records/13145035>Zenodo</a>.
+
 
 ## Python Steps
-Scripts made in Jupyter Labs to detect flooding in Philadelphia after Hurricane Ida in 2021.
+<a href= > Part III Compare Flood Area</a>: Calculate area and percent of flood extent (output of Part II) for <a href=https://www.fema.gov/flood-maps> FEMA Flood Risk Zones </a> (100-year, 500-year, Minimal Risk). Plot the area and percent of flooding that occured in each zone at the tract level. This code requires downloading data from <a href=https://hazards.fema.gov/femaportal/NFHL/searchResult>FEMA</a>.
+<a href= > Part IV Compare Flood Impact</a>: Plot Lorenz curves and calculate the Gini coefficient to determine distribution of flood impact. This code requires downloading vulnerability data from the <a href=https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html >CDC</a>.
 
 
 ## Other products
-Paper
-Interactive map
-Flood extent (shapefile)
+- <a href= https://rdcu.be/dPcyu>Paper</a> published in <i>Natural Hazards</i> creating novel flood extent for Hurricane Ida in southeastern Pennsylvania using satellite imagery and the Random Forest machine learning algorithm.
+- Skip the paper, go straight to this <a href=https://experience.arcgis.com/experience/3d12e11db70740d28a52b29f33c9f1a7/>interactive map<a/> displaying the flood extent, roads, FEMA flood zones and more.
+- Skip the map, go straight to the data and download the <a href=https://zenodo.org/records/13145035>vectorized flood extent</a> .
 
 
