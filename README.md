@@ -1,6 +1,9 @@
 # Make Flood Extent and Compare to Flood Risk & Vulnerability
 This repository contains the code that was used to produce results for a <a href= https://rdcu.be/dPcyu>study</a> published in <i>Natural Hazards</i>. 
 
+<p align="center">
+  <img src="/Flood_Schul.JPG" title="test" width="60%" />
+</p>
 
 ## Google Earth Engine (GEE) Steps
 <a href=https://code.earthengine.google.com/7a770b9cb0fbbe28ff800a779452d26a> Part I Make RF Model Inputs</a>: Get Sentinel-2 (10 m) satellite data, derives indices, join with other data (DEM, land cover, water), and export for the model. 
