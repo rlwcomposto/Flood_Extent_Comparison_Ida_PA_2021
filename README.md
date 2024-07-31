@@ -12,8 +12,9 @@ This repository contains the code that was used to produce results for a <a href
 
 
 ## Python Steps
-<a href= > Part III Compare Flood Area</a>: Calculate area and percent of flood extent (output of Part II) for <a href=https://www.fema.gov/flood-maps> FEMA Flood Risk Zones </a> (100-year, 500-year, Minimal Risk). Plot the area and percent of flooding that occured in each zone at the tract level. This code requires downloading data from <a href=https://hazards.fema.gov/femaportal/NFHL/searchResult>FEMA</a>.
-<a href= > Part IV Compare Flood Impact</a>: Plot Lorenz curves and calculate the Gini coefficient to determine distribution of flood impact. This code requires downloading vulnerability data from the <a href=https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html >CDC</a>.
+<a href=https://github.com/rlwcomposto/Flood_Extent_Comparison_Ida_PA_2021/blob/main/PartIII.ipynb > Part III Compare Flood Area</a>: Calculate area and percent of flood extent (output of Part II) for <a href=https://www.fema.gov/flood-maps> FEMA Flood Risk Zones </a> (100-year, 500-year, Minimal Risk). Plot the area and percent of flooding that occured in each zone at the tract level. This code requires downloading data from <a href=https://hazards.fema.gov/femaportal/NFHL/searchResult>FEMA</a>.
+
+<a href=https://github.com/rlwcomposto/Flood_Extent_Comparison_Ida_PA_2021/blob/main/PartIV.ipynb > Part IV Compare Flood Impact</a>: Plot Lorenz curves and calculate the Gini coefficient to determine distribution of flood impact. This code requires downloading vulnerability data from the <a href=https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html >CDC</a>.
 
 
 ## Other products
