@@ -1,14 +1,21 @@
-# Detect_Flood_Phila_2021
+# Make Flood Extent and Compare to Flood Risk & Vulnerability
+About
+
+## Google Earth Engine (GEE) Steps
+Part I: XXX
+- This script filters Sentinel-2 (10 m) satellite data to desired dates, derives indices, and joins the satellite data to DEM, land cover and water data. This script saves the model inputs as tiff files.
+
+Part II: XXX
+This scripts uses the output tiff files in Part 1 and uploaded training data to map the flood extetn
+The resulting flood extent from this script is available as a shapefile on Zenodo
+
+## Python Steps
 Scripts made in Jupyter Labs to detect flooding in Philadelphia after Hurricane Ida in 2021.
 
-## Data
-GEE Code for S2: https://code.earthengine.google.com/3dbbc00a54cd539224bd712aa1fc3f2c
 
-Drive with data: https://drive.google.com/drive/folders/1O_ZBg3JLkzNLwHJUhyCU2UZ5-rb6ZJJW?usp=share_link
-- Sentinel-2 imagery
-- DEM for ROI
-- Misc. Data (NHD)
-- Training data
-- ROI
+## Other products
+Paper
+Interactive map
+Flood extent (shapefile)
 
 
